@@ -1,0 +1,17 @@
+{
+  "name": "com.falkolab.imagecache",
+  "version": "1.0.0",
+  "description": "Commonjs module to cache images for Titanium SDK",
+  "main": "imagecache.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "titanium",
+    "image",
+    "cache",
+    "titaniumifier"
+  ],
+  "author": "Andrey Tkachenko",
+  "license": "MIT"
+}

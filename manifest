@@ -1,0 +1,10 @@
+version: 1.0.0
+description: Commonjs module to cache images for Titanium SDK
+author: Andrey Tkachenko
+license: MIT
+copyright: Copyright © 2015 Andrey Tkachenko
+name: com.falkolab.imagecache
+moduleid: com.falkolab.imagecache
+guid:
+platform: commonjs
+minsdk: 3.5.1.GA
