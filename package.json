@@ -1,8 +1,13 @@
 {
-  "name": "com.falkolab.imagecache",
+  "name": "titanium-imagecache",
   "version": "1.0.0",
   "description": "Commonjs module to cache images for Titanium SDK",
   "main": "imagecache.js",
+  "titaniumManifest": {
+    "name": "Ttitanium Image Cache",
+    "moduleid": "com.falkolab.imagecache",
+    "guid": "ff756349-24e3-0ab2-75bb-7bd666e9bfd0"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
