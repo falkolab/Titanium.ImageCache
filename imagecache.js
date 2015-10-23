@@ -1,21 +1,30 @@
-function ImageCache(options) {
-	if(_.isUndefined(options.cacheKey)) {
+function ImageCache(cacheKey, options) {
+
+	if (!(this instanceof ImageCache)) {
+        return new ImageCache(cacheKey, options);
+	}
+
+	if(_.isUndefined(cacheKey)) {
 		Ti.API.error("You must specify unique persistent `cacheKey` for this cache instance. Warning: existen cache will be owerwrited!");
 		return;
 	} else {
-		this._baseKey = 'com.falkolab.imagecache.'+this.cacheKey;
+		this._baseKey = 'com.falkolab.imagecache.' + cacheKey;
 	}
 
 	var configKey = this._baseKey + '.config';
+
+	options = options || {};
 
 	var config = _.extend(
 		Ti.App.Properties.getObject(configKey, ImageCache.defaultConfig),
 			_.pick(options, _.keys(ImageCache.defaultConfig)));
 
+	Ti.App.Properties.setObject(configKey, config);
+
 	var silentProps = false;
 
 	Object.defineProperty(this, 'cacheKey', {
-		value: config.cacheKey,
+		value: cacheKey,
 		writable: false
 	});
 
@@ -37,11 +46,11 @@ function ImageCache(options) {
 		}
 	});
 
-	Object.defineProperty(this, 'expireTime', {
-		get: function() { return config.expireTime;	},
+	Object.defineProperty(this, 'lifetime', {
+		get: function() { return config.lifetime;	},
 		set: function(value) {
 			this.flushExpired();
-			config.expireTime = value;
+			config.lifetime = value;
 			!silentProps && Ti.App.Properties.setObject(configKey, config);
 		}
 	});
@@ -74,14 +83,14 @@ function ImageCache(options) {
 
 ImageCache.defaultConfig = {
 	folder: 'ImageCache',
-	expireTime: 43200, // half a day (in seconds)
+	lifetime: 43200, // half a day (in seconds)
 	debug: false, // does console.log debug
 	remoteBackup: true, // do you want the file(s) to be backed up to a remote cloud, like iCloud on iOS? Doesn't work on Android
 	baseDirectory: Titanium.Filesystem.applicationDataDirectory // wher is files stored
 };
 
 ImageCache.prototype.d = function() {
-	this.debug && Ti.API.debug.apply(null,['ImageCache [' + this.cacheKey + ']:'].concat(arguments));
+	this.debug && Ti.API.debug('ImageCache [' + this.cacheKey + ']:', Array.prototype.slice.call(arguments).join(' '));
 };
 
 ImageCache.prototype.getFileList = function() {
@@ -99,13 +108,16 @@ ImageCache.prototype.setFileList = function(list) {
 };
 
 /**
- * Check if file based on filename is already in system
+ * Geting file cache-record if present
  */
-ImageCache.prototype.hasFile = function(filename){
-	this.d('Checking file in system:', filename);
-	return _.findWhere(this.getFileList(), {filename: filename});
+ImageCache.prototype.getFileRecord = function(fileName){
+	this.d('Looking for file in the system:', fileName);
+    return _.findWhere(this.getFileList(), {fileName: fileName});
 };
 
+ImageCache.prototype.getFileRecordByUrl = function(url){
+	return this.getFileRecord(Ti.Utils.md5HexDigest(url));
+};
 
 /**
  * Ensure is the directory been created yet?
@@ -118,16 +130,16 @@ ImageCache.prototype.ensureDir = function() {
 
 /**
  * Store the file
- * @param {String} filename (needs to be unique, otherwise will overwrite)
+ * @param {String} fileName (needs to be unique, otherwise will overwrite)
  * @param {Blob} Blob of the image
  */
-ImageCache.prototype.saveBlob = function(filename, blob){
-	this.d('Save blob', filename);
-	if (hasFile(filename))	return;
+ImageCache.prototype.saveBlob = function(fileName, blob){
+	this.d('Saving a blob', fileName);
+	if (this.getFileRecord(fileName))	return;
 
 	this.ensureDir();
 
-	var file = Ti.Filesystem.getFile(this.baseDirectory, this.folder, filename);
+	var file = Ti.Filesystem.getFile(this.baseDirectory, this.folder, fileName);
 
 	if (file.write(blob)){
 		if (Ti.Platform.name == 'iPhone OS'){
@@ -139,10 +151,10 @@ ImageCache.prototype.saveBlob = function(filename, blob){
 
 	var list = this.getFileList();
 	list.push({
-		filename: filename,
-		added: Date.now(),
+		fileName: fileName,
+		addedAt: Date.now(),
 		fileSize: blob.length,
-		expireTime: this.expireTime,
+		lifetime: this.lifetime,
 		folder: this.folder
 	});
 
@@ -151,19 +163,18 @@ ImageCache.prototype.saveBlob = function(filename, blob){
 };
 
 /**
- * read file from memory
+ * read file from filesystem
  */
-ImageCache.prototype.readFile = function(filename){
-	this.d('Reading file', filename);
+ImageCache.prototype.readFile = function(fileName){
+	this.d('Reading file', fileName);
 
-	var fileRecord = this.hasFile(filename);
+	var fileRecord = this.getFileRecord(fileName);
 	if(!fileRecord) {
-		throw "File "+filename+" not found!";
+		throw "File " + fileName + " not found!";
 	}
 
-
 	return Ti.Filesystem.getFile(this.baseDirectory,
-		fileRecord.folder, filename).read();
+		fileRecord.folder, fileName).read();
 };
 
 /**
@@ -180,55 +191,51 @@ ImageCache.prototype.cacheSize = function(){
  * Clear the cache entirely
  */
 ImageCache.prototype.clearCache = function(){
-	this.d('Completely emtying cache');
-	this.removeFiles(_.pluck(this.getFileList(), 'filename'));
+	this.d('Completely cleaning cache');
+	this.removeFiles(_.pluck(this.getFileList(), 'fileName'));
 };
 
 /**
  * Clear only cache files that are older than cache expiry time
  */
 ImageCache.prototype.flushExpired = function(){
-	if (c.debug)
-		Ti.API.info('TIC - flush expired files');
+	this.d('Flush expired files');
 
 	var removeFiles = [];
-	_.each(fileList, function(file){
-		if (Date.now() - (file.added + (file.expireTime * 1000)) > 0){
-
-			if (c.debug)
-				Ti.API.info('TIC - found expired file, removing');
-
-			removeFiles.push(file.filename);
+	this.removeFiles(_.chain(this.getFileList()).filter(function(fileRecord){
+		if (Date.now() - (fileRecord.addedAt + (fileRecord.lifetime * 1000)) > 0){
+			this.d('Found expired file ' + fileRecord.fileName + ', removing');
+			return true;
 		}
-	});
-
-	_.each(removeFiles, removeFile);
+		return false;
+	}).pluck("fileName").value());
 };
 
 /**
- * Remove a file based on internal filename
- * Note: filename is generated by To.ImageCache
- * @param {String} Filename of the image
+ * Remove a file based on internal fileName
+ * Note: fileName is generated by To.ImageCache
+ * @param {String} fileName of the image
  */
 ImageCache.prototype.removeFiles = function(){
-	this.d('Removing', arguments.length,'files');
+	var nameList = Array.prototype.slice.call(arguments);
+	this.d('Removing', nameList.length, 'files');
 
 	var list = this.getFileList();
-	var result = _.chain(arguments).map(function(filename) {
-		var fileRecord = this.hasFile(filename);
+	var result = _.chain(nameList).map(function(fileName) {
+		var fileRecord = this.getFileRecord(fileName);
 		if (!fileRecord){
 			return null;
 		}
 
-		var file = Ti.Filesystem.getFile(this.baseDirectory, fileRecord.folder, fileRecord.filename);
+		var file = Ti.Filesystem.getFile(this.baseDirectory, fileRecord.folder, fileRecord.fileName);
 
 		if (!file.exists()){
-			this.d('File ' + filename + ' has aleady been removed');
+			this.d('File ' + fileName + ' has aleady been removed');
 			return fileRecord;
 		}
 
 		if (file.deleteFile()){
-			this.d('File ' + filename + ' has been removed');
+			this.d('File ' + fileName + ' has been removed');
 			return fileRecord;
 		}
 
@@ -243,10 +250,9 @@ ImageCache.prototype.removeFiles = function(){
 
 /**
  * Remove a file based on URL from cache.
- * Useful if you don't know the filename
  * @param {String} URL of the image
  */
-ImageCache.prototype.removeRemote = function(url) {
+ImageCache.prototype.removeByUrl = function(url) {
 	this.d('Removing file based on URL', url);
 	this.removeFile(Ti.Utils.md5HexDigest(url));
 };
@@ -256,13 +262,13 @@ ImageCache.prototype.removeRemote = function(url) {
  * Therefore, only use this function if you want to cache it.
  * @param {String} url
  */
-ImageCache.prototype.loadSync = function(url) {
-	var filename =  Ti.Utils.md5HexDigest(url);
-	this.d('Loading remote image', url, filename);
+ImageCache.prototype.load = function(url) {
+	var fileName =  Ti.Utils.md5HexDigest(url);
+	this.d('Loading remote image', url, fileName);
 
-	if (this.hasFile(filename)) {
+	if (this.getFileRecord(fileName)) {
 		this.d('Using cached file');
-		return this.readFile(filename);
+		return this.readFile(fileName);
 	}
 
 	this.d("Doesn't have file yet");
@@ -274,7 +280,7 @@ ImageCache.prototype.loadSync = function(url) {
 		height : Ti.UI.SIZE
 	}).toBlob();
 
-	this.storeFile(filename, blob);
+	this.saveBlob(fileName, blob);
 	return blob;
 };
 
@@ -290,8 +296,8 @@ ImageCache.prototype.loadSync = function(url) {
 ImageCache.prototype.loadAsync = function(url, requestTimeout,
 	successCallback, errorCallback, datastreamCallback){
 
-	var filename =  Ti.Utils.md5HexDigest(url);
-	if (this.hasFile(filename)) {
+	var fileName =  Ti.Utils.md5HexDigest(url);
+	if (this.getFileRecord(fileName)) {
 		this.d('File already cached', url);
 		return false;
 	}
@@ -299,8 +305,8 @@ ImageCache.prototype.loadAsync = function(url, requestTimeout,
 	var self = this,
 		opts = {
 			onload: function() {
-				this.storeFile(filename, this.responseData);
-				successCallback && successCallback(self.readFile(filename));
+				this.saveBlob(fileName, this.responseData);
+				successCallback && successCallback(self.readFile(fileName));
 			},
 			timeout: requestTimeout || 30000
 		};
